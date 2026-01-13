@@ -39,10 +39,11 @@
       padding: 8px 12px; border-radius: 8px; cursor: pointer; font-weight: 600;
     }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
-    input[type="text"] {
+    input[type="text"], input[type="number"] {
       background: #0e1728; color: var(--text); border: 1px solid #203055;
-      padding: 8px 10px; border-radius: 8px; min-width: 320px;
+      padding: 8px 10px; border-radius: 8px;
     }
+    input[type="text"] { min-width: 320px; }
     label { color: var(--muted); }
 
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
@@ -78,12 +79,19 @@
       </div>
     </header>
 
-    <!-- URL Selector -->
+    <!-- URL & Limits -->
     <section class="card">
       <div class="row" style="gap:8px 12px;">
         <label for="urlInput">Probe URL:</label>
         <input id="urlInput" type="text" placeholder="https://example.com/favicon.ico or example.com" />
         <button id="applyUrlBtn" title="Apply and start probing this URL">Apply</button>
+
+        <label for="minIntervalInput">Min interval (s):</label>
+        <input id="minIntervalInput" type="number" min="1" step="1" value="10" />
+        <label for="maxIntervalInput">Max interval (s):</label>
+        <input id="maxIntervalInput" type="number" min="1" step="1" value="30" />
+        <button id="applyLimitsBtn" title="Apply new cadence limits">Apply limits</button>
+
         <div class="pill">Current interval: <strong id="intervalText">–</strong></div>
         <div class="pill">Last test: <strong id="lastTestText">–</strong></div>
         <div class="pill">5‑min success: <strong id="fiveMinSuccess">–</strong></div>
@@ -100,10 +108,10 @@
         <div>
           <div class="hint">Notes</div>
           <ul class="hint" style="margin-top:6px;">
-            <li>Adaptive cadence: <strong>min 10s</strong>, <strong>max 30s</strong>; more often on failures, less often on successes.</li>
-            <li>A probe **fails** if no response within <strong>2 seconds</strong>.</li>
-            <li>Use public endpoints; small static assets or 204 endpoints (like <code>gstatic generate_204</code>) work well.</li>
-            <li>Your selected URL and history persist locally.</li>
+            <li>Adaptive cadence (configurable bounds): <strong id="notesMin">10s</strong> min, <strong id="notesMax">30s</strong> max.</li>
+            <li>More often on failures (shorter interval), less often on successes (longer interval).</li>
+            <li>A probe <strong>fails</strong> if no response within <strong>2 seconds</strong>.</li>
+            <li>Your selected URL and limits persist locally.</li>
           </ul>
         </div>
       </div>
@@ -164,12 +172,12 @@
     };
     LOG.info(`Booting Internet Health Monitor (level=${LOG_LEVEL}, trace=${TRACE}, net=${NET})`);
 
-    // ------------------ Config ------------------
+    // ------------------ Config (defaults) ------------------
     const DEFAULT_PROBE_URL = "https://www.yahoo.com/favicon.ico";
+    const DEFAULT_MIN_SEC = 10;
+    const DEFAULT_MAX_SEC = 30;
+
     const PROBE_TIMEOUT_MS = 2000;          // Fail if no response within 2s
-    const MIN_INTERVAL_MS = 10_000;         // Never faster than 1 request per 10s
-    const MAX_INTERVAL_MS = 30_000;         // Not slower than 30s (i.e., every 30s or less)
-    const START_INTERVAL_MS = 20_000;       // Start mid-way
     const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
     const FIVE_MIN_MS = 5 * 60 * 1000;
     const STORAGE_KEY = "internetMonitorHistoryV1";
@@ -177,14 +185,18 @@
     const STATUS_THRESHOLDS = { healthy: 0.90, unstable: 0.60 };
 
     // ------------------ State ------------------
-    let currentInterval = START_INTERVAL_MS;
     let timerId = null;
     let lastRunAt = 0;
     let history = loadHistory();
 
-    // Settings (probe URL)
+    // Settings (probe URL + limits)
     let settings = loadSettings();
     let probeUrl = settings?.probeUrl || DEFAULT_PROBE_URL;
+    let minIntervalMs = settings?.minIntervalMs ?? DEFAULT_MIN_SEC * 1000;
+    let maxIntervalMs = settings?.maxIntervalMs ?? DEFAULT_MAX_SEC * 1000;
+
+    // Start interval: midpoint clamped to current limits
+    let currentInterval = clamp(Math.round(((minIntervalMs + maxIntervalMs) / 2)), minIntervalMs, maxIntervalMs);
 
     // ------------------ DOM ------------------
     const intervalText = document.getElementById("intervalText");
@@ -202,13 +214,23 @@
     const probeUrlLabel = document.getElementById("probeUrlLabel");
     const urlInput = document.getElementById("urlInput");
     const applyUrlBtn = document.getElementById("applyUrlBtn");
+    const minIntervalInput = document.getElementById("minIntervalInput");
+    const maxIntervalInput = document.getElementById("maxIntervalInput");
+    const applyLimitsBtn = document.getElementById("applyLimitsBtn");
+    const notesMin = document.getElementById("notesMin");
+    const notesMax = document.getElementById("notesMax");
     const ctx = historyCanvas.getContext("2d");
 
-    // Initialize header label & input value
+    // Initialize header label & inputs
     probeUrlLabel.textContent = probeUrl;
     urlInput.value = probeUrl;
+    minIntervalInput.value = Math.round(minIntervalMs / 1000);
+    maxIntervalInput.value = Math.round(maxIntervalMs / 1000);
+    notesMin.textContent = `${Math.round(minIntervalMs / 1000)}s`;
+    notesMax.textContent = `${Math.round(maxIntervalMs / 1000)}s`;
 
     // ------------------ Utilities ------------------
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
     function msToHuman(ms) { return Math.round(ms / 1000) + "s"; }
     function formatTime(ts) {
       const d = new Date(ts);
@@ -241,7 +263,11 @@
     }
     function saveSettings() {
       try {
-        localStorage.setItem(SETTINGS_KEY, JSON.stringify({ probeUrl }));
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+          probeUrl,
+          minIntervalMs,
+          maxIntervalMs
+        }));
       } catch (e) {
         LOG.error("Failed to save settings", e);
       }
@@ -277,9 +303,41 @@
       saveSettings();
       LOG.info("Probe URL updated", { probeUrl });
 
+      // Reset cadence to midpoint within new bounds
+      currentInterval = clamp(Math.round(((minIntervalMs + maxIntervalMs) / 2)), minIntervalMs, maxIntervalMs);
       clearTimeout(timerId);
-      currentInterval = START_INTERVAL_MS; // reset cadence on URL change
       scheduleNext(0, "url-change");
+      return true;
+    }
+
+    function applyLimits() {
+      const minSec = Number(minIntervalInput.value);
+      const maxSec = Number(maxIntervalInput.value);
+
+      if (!Number.isFinite(minSec) || !Number.isFinite(maxSec) || minSec <= 0 || maxSec <= 0) {
+        LOG.warn("Invalid limits: must be positive numbers (seconds)");
+        alert("Invalid limits. Please enter positive numbers (seconds).");
+        return false;
+      }
+      if (maxSec < minSec) {
+        LOG.warn("Invalid limits: max must be ≥ min");
+        alert("Invalid limits. Max interval must be greater than or equal to Min interval.");
+        return false;
+      }
+
+      minIntervalMs = Math.round(minSec * 1000);
+      maxIntervalMs = Math.round(maxSec * 1000);
+      notesMin.textContent = `${minSec}s`;
+      notesMax.textContent = `${maxSec}s`;
+
+      // Clamp current interval to new bounds
+      const before = currentInterval;
+      currentInterval = clamp(currentInterval, minIntervalMs, maxIntervalMs);
+      LOG.info(`Limits applied: min=${minIntervalMs}ms, max=${maxIntervalMs}ms; interval clamped ${before}→${currentInterval}`);
+      saveSettings();
+
+      clearTimeout(timerId);
+      scheduleNext(0, "limits-change");
       return true;
     }
 
@@ -292,15 +350,14 @@
       const controller = new AbortController();
       const to = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
 
-      // Build URL with cache-buster
+      // Cache-bust
       const src = probeUrl + (probeUrl.includes("?") ? "&" : "?") + "_=" + Date.now();
 
       try {
         if (NET) LOG.time(label);
         LOG.debug("Starting fetch probe", { url: src, timeoutMs: PROBE_TIMEOUT_MS });
 
-        // Important: mode:'no-cors' yields an opaque response for cross-origin.
-        // We treat resolution as success; abort/error as failure.
+        // Cross-origin: mode 'no-cors' gives opaque response; resolution indicates reachability.
         await fetch(src, { mode: "no-cors", signal: controller.signal });
 
         const duration = performance.now() - start;
@@ -330,13 +387,13 @@
     function adjustInterval(ok) {
       const before = currentInterval;
       if (!ok) {
-        // Failure → increase frequency (shorter interval), but not less than 10s
-        currentInterval = Math.max(MIN_INTERVAL_MS, Math.round(currentInterval * 0.70));
+        // Failure → increase frequency (shorter interval), bounded by minIntervalMs
+        currentInterval = Math.max(minIntervalMs, Math.round(currentInterval * 0.70));
       } else {
-        // Success → decrease frequency (longer interval), but not more than 30s
-        currentInterval = Math.min(MAX_INTERVAL_MS, Math.round(currentInterval * 1.18 + 500));
+        // Success → decrease frequency (longer interval), bounded by maxIntervalMs
+        currentInterval = Math.min(maxIntervalMs, Math.round(currentInterval * 1.18 + 500));
       }
-      LOG.info(`Cadence ${ok ? "backoff" : "tighten"}: ${before} → ${currentInterval} ms`);
+      LOG.info(`Cadence ${ok ? "backoff" : "tighten"}: ${before} → ${currentInterval} ms (bounds ${minIntervalMs}..${maxIntervalMs})`);
     }
 
     // ------------------ Status (last 5 minutes) ------------------
@@ -516,10 +573,10 @@
       LOG.group("runOnce()");
       const now = Date.now();
 
-      // Guardrail: never faster than MIN_INTERVAL_MS
+      // Guardrail: never faster than minIntervalMs
       const since = now - lastRunAt;
-      if (lastRunAt && since < MIN_INTERVAL_MS) {
-        const wait = MIN_INTERVAL_MS - since;
+      if (lastRunAt && since < minIntervalMs) {
+        const wait = minIntervalMs - since;
         LOG.warn(`Throttled: last run ${since} ms ago, waiting ${wait} ms`);
         scheduleNext(wait, "throttled");
         LOG.groupEnd();
@@ -542,8 +599,8 @@
     function wireEvents() {
       testNowBtn.addEventListener("click", () => {
         LOG.info("Manual 'Test now' clicked");
-        if (Date.now() - lastRunAt < MIN_INTERVAL_MS) {
-          LOG.warn("Manual test throttled due to min-interval guard (10s)");
+        if (Date.now() - lastRunAt < minIntervalMs) {
+          LOG.warn("Manual test throttled due to min-interval guard");
           testNowBtn.disabled = true;
           setTimeout(() => { testNowBtn.disabled = false; }, 1000);
           return;
@@ -567,13 +624,23 @@
       applyUrlBtn.addEventListener("click", () => {
         const val = urlInput.value;
         if (setProbeUrl(val)) {
-          currentInterval = START_INTERVAL_MS;
-          LOG.info("Cadence reset after URL change", { currentInterval });
+          LOG.info("Cadence reset (midpoint) after URL change", { currentInterval });
         }
       });
 
       urlInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") applyUrlBtn.click();
+      });
+
+      applyLimitsBtn.addEventListener("click", () => {
+        applyLimits();
+      });
+
+      minIntervalInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") applyLimitsBtn.click();
+      });
+      maxIntervalInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") applyLimitsBtn.click();
       });
 
       window.addEventListener("resize", () => {
