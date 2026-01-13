@@ -1,5 +1,5 @@
 
-# exist – SPA (Adaptive Probe, Configurable Timeouts & Windows)
+# exist – SPA (Adaptive Probe, Configurable Timeouts & Window)
 
 A zero‑dependency, single‑file web app to monitor internet reachability by probing a configurable URL. **exist** adapts its probe frequency within **configurable bounds**, visualizes **latency** (milliseconds) over a rolling window, and reports an **overall status** based on a configurable time window.
 
