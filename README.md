@@ -12,52 +12,69 @@ A zero‑dependency, single‑file web app to monitor internet reachability by p
   - **More often on failures** (interval tightens).
   - **Less often on successes** (interval backs off).
   - **Never faster than Min interval** and **never slower than Max interval** (both editable).
-- **Timeout policy (editable):** A probe **fails** if it doesn’t complete within **Timeout** (default: 2s).
-- **Status window (editable):** Computes **Healthy / Unstable / Down** over the last **X minutes** (default: 5 min).
-- **History window (editable):** Retains a rolling **X hours** of results (default: 2 hours) and renders a latency chart.
+- **Timeout policy (editable):** A probe **fails** if it doesn’t complete within **Timeout**.
+- **Status window (editable):** Computes **Healthy / Unstable / Down** over the last **X minutes**.
+- **History window (editable):** Retains a rolling **X hours** of results and renders a latency chart.
 - **Persistence:** Stores your **Probe URL**, **Min/Max interval**, **Timeout**, **History window**, and **Status window** in the browser’s **localStorage**.
 
 ---
 
+## 🖼️ Screenshots
+
+
+### Settings modal (desktop)
+<!-- Replace {{IMG1_BASE64}} with the actual base64 of your PNG -->
+<picture>
+  <img alt="exist — Settings modal" src="data:image/png;base64,{{IMG1_BASE64}}" style="max-width:100%;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);" />
+</picture>
+<picture>
+  <img alt="exist — Main dashboard desktop" src="data:image/png;base64,{{IMG2_BASE64}}" style="max-width:100%;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);" />
+</picture>
+<picture>
+  <img alt="exist — Main dashboard mobile" src="data:image/png;base64,{{IMG3_BASE64}}" style="max-width:100%;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);" />
+</picture>
+
 ## 🚀 Quick Start
 
-1. Open the HTML file (`internet-monitor.html`) in a modern browser (Chrome/Edge/Firefox).
-2. Set the **Probe URL**, then click **Apply**.  
-   - You can enter a domain (e.g., `bing.com`) or a full link (e.g., `http://www.gstatic.com/generate_204`).
-   - Bare domains default to `https://` and `/favicon.ico` if no path is provided.
-3. Configure **Min interval** and **Max interval** (seconds), then **Apply limits**.
-4. Configure **Timeout (s)**, **History window (hours)**, **Status window (minutes)**, then **Apply settings**.
-5. Use **Test now** to trigger a probe (it still honors the **Min interval** guard).
-6. Use **Clear history** to wipe the rolling window stored locally.
+1. Open the HTML page in a modern browser (Chrome/Edge/Firefox).
+2. Click **Settings**:
+   - Set the **Probe URL**, **Min/Max interval (seconds)**, **Timeout (seconds)**,
+     **History window (hours)**, and **Status window (minutes)**.
+   - Click **Save**.
+3. Use **Test now** to trigger a probe (respects Min interval guard).
+4. Watch the **status badge**, **success rate**, and **latency chart** update live.
 
-> For verbose diagnostics, open with:  
-> `internet-monitor.html?log=debug&trace=1&net=1`
+> Diagnostics: `internet-monitor.html?log=debug&trace=1&net=1`
 
 ---
 
 ## 🧭 Controls & UI
 
-- **Probe URL**: Target to call. A cache‑buster is added to avoid cached responses.
-- **Min/Max interval (seconds)**: Bounds for the adaptive cadence.
-- **Timeout (seconds)**: If a probe takes longer than this, it’s counted as **Failure**.
-- **History window (hours)**: Rolling window used by the chart and data retention.
-- **Status window (minutes)**: Window used to compute the overall status.
-- **Status badge**: Shows **Healthy / Unstable / Down** based on the status window.
-- **Latency chart**: Plots latency in **ms** over the history window.  
-  - **Green** point/segment = latency **below** timeout.  
-  - **Red** = at/over timeout (failures or too slow).  
-  - **Hover** to see timestamp and duration.
-- **Test now / Clear history**: Manual controls (respect guardrails/persistence).
+- **Settings modal** (keeps the main screen clean):
+  - **Probe URL** (e.g., `http://www.gstatic.com/generate_204`, `bing.com`, or `…/favicon.ico`).
+  - **Min interval / Max interval (seconds)** — bounds for the adaptive cadence.
+  - **Timeout (seconds)** — anything ≥ Timeout is treated as **slow/fail**.
+  - **History window (hours)** — rolling data retention and chart window.
+  - **Status window (minutes)** — window for status computation.
+  - **Reset defaults**, **Clear history**, **Save**.
+- **Main view**:
+  - **Status badge** (Healthy / Unstable / Down).
+  - **Current interval**, **Last test**, **windowed success rate**.
+  - **Latency chart** (ms) with:
+    - **Green** points/segments if latency **< Timeout**.
+    - **Red** if latency **≥ Timeout** (includes timeouts).
+    - **Dashed threshold line** at Timeout.
+    - **Hover/touch tooltip** with timestamp & duration.
 
 ---
 
 ## 🔧 Probe Logic (High‑Level)
 
-- Uses **`fetch(url, { mode: 'no-cors' })`** with an **AbortController** timeout:
-  - If the request **completes** before the timeout, the result is **Success** (opaque cross‑origin is acceptable for reachability).
-  - If the request **aborts** at **Timeout** (or errors), result is **Failure**.
-- Works with:
-  - **Small public assets** (e.g., `/favicon.ico`).
+- `fetch(url, { mode: 'no-cors' })` + **AbortController** with configured **Timeout**.
+  - **Resolves in time** → **Success** (opaque is fine for reachability).
+  - **Aborts/errors** → **Failure**.
+- Works for:
+  - Small public assets like `/favicon.ico`.
   - **204 No Content** endpoints (e.g., `http://www.gstatic.com/generate_204`).
 
 ---
@@ -65,52 +82,49 @@ A zero‑dependency, single‑file web app to monitor internet reachability by p
 ## ⏱️ Cadence (Adaptive + Guardrails)
 
 - **Initial interval:** Midpoint between **Min** and **Max**.
-- **On Failure:** Interval **tightens** (~30% shorter), clamped to **≥ Min**.
-- **On Success:** Interval **backs off** (~18% longer + 0.5s), clamped to **≤ Max**.
-- **Hard guardrail:** The scheduler prevents any run **faster** than **Min** (applies to auto runs and “Test now”).
+- **On Failure:** Tighten (≈ −30%, clamped to **≥ Min**).
+- **On Success:** Back off (≈ +18% + 0.5s, clamped to **≤ Max**).
+- **Hard guardrail:** Never run faster than **Min** (applies to auto & manual probes).
 
 ---
 
 ## 🧮 Status (Configurable Window)
 
-- Evaluates the last **Status window** (default **5 min**):
+- Evaluates the last **Status window**:
   - **Healthy:** Success rate ≥ **90%**
   - **Unstable:** 60–89%
   - **Down:** < 60%
-- The **last probe** line also shows “Internet is working” vs “Internet is bad” based on the latest result relative to **Timeout**.
+- The last probe line shows “Internet is working” vs “Internet is bad” based on result vs Timeout.
 
 ---
 
 ## 📈 Latency Chart (Rolling History)
 
-- X-axis: Relative time across the **History window** (default **2 hours**).
-- Y-axis: **Latency (ms)**. A dashed line marks the **Timeout** threshold.
-- **Coloring:** Each point/segment is **green** if latency < Timeout, **red** otherwise.
-- **Hover tooltip:** Timestamp & latency for the nearest data point.
-- Redraws on window resize.
+- X-axis: Relative time across **History window**.
+- Y-axis: **Latency (ms)**; dashed line marks **Timeout** threshold.
+- Coloring: **Green** if latency < Timeout; **Red** otherwise.
+- Redraws on resize; supports hover and touch.
 
 ---
 
 ## 💾 Persistence
 
-- **History**: Stored in `localStorage` (rolling by **History window**).
-- **Settings**: Stores **Probe URL**, **Min/Max interval**, **Timeout**, **History window**, **Status window**.
-- In privacy modes, localStorage may be disabled.
+- **History** (rolling by History window) and **Settings** persist in `localStorage`.
+- In strict privacy modes, localStorage may be disabled.
 
 ---
 
 ## ✅ Recommended URLs
 
 - Public, small assets like **`/favicon.ico`**.
-- Captive portal endpoints like **`http://www.gstatic.com/generate_204`** (returns **204 No Content**; handled via `fetch`).
+- **`http://www.gstatic.com/generate_204`** for 204‑No‑Content reachability checks.
 
 ---
 
 ## 🧩 Troubleshooting
 
-- **No persistence**: Likely due to privacy mode or enterprise storage policy.
-- **Unexpected failures**: Verify the endpoint is public/reachable; try a known CDN asset.
-- **“Works in browser but fails here”**: If the endpoint requires credentials or disallows cross-origin requests, it may not resolve in `no-cors`. Prefer public test endpoints.
+- **No persistence**: Privacy mode or enterprise policy may block `localStorage`.
+- **Unexpected failures**: Ensure the target is public/reachable; try a known CDN endpoint.
 
 ---
 
@@ -127,5 +141,4 @@ Example:
 
 ---
 
-*exist is a local, client‑side tool. Save the HTML and run—no external dependencies.*
-``
+*exist is fully client‑side. Save the HTML and run—no external dependencies.*
