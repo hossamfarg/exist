@@ -25,13 +25,13 @@ A zero‑dependency, single‑file web app to monitor internet reachability by p
 ### Settings modal (desktop)
 <!-- Replace {{IMG1_BASE64}} with the actual base64 of your PNG -->
 <picture>
-  <img alt="exist — Settings modal" src="data:image/png;base64,{{IMG1_BASE64}}" style="max-width:100%;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);" />
+  <img alt="exist — Settings modal" src="data:image/png;base64,qwertyui" style="max-width:100%;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);" />
 </picture>
 <picture>
-  <img alt="exist — Main dashboard desktop" src="data:image/png;base64,{{IMG2_BASE64}}" style="max-width:100%;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);" />
+  <img alt="exist — Main dashboard desktop" src="data:image/png;base64,qwertyui123" style="max-width:100%;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);" />
 </picture>
 <picture>
-  <img alt="exist — Main dashboard mobile" src="data:image/png;base64,{{IMG3_BASE64}}" style="max-width:100%;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);" />
+  <img alt="exist — Main dashboard mobile" src="data:image/png;base64,qwertyui345" style="max-width:100%;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);" />
 </picture>
 
 ## 🚀 Quick Start
@@ -142,3 +142,4 @@ Example:
 ---
 
 *exist is fully client‑side. Save the HTML and run—no external dependencies.*
+
